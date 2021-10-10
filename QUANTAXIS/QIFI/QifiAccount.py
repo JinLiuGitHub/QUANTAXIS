@@ -32,7 +32,8 @@ def parse_orderdirection(od):
 
 class QIFI_Account():
 
-    def __init__(self, username, password, model="SIM", broker_name="QAPaperTrading", trade_host=mongo_ip, init_cash=1000000, taskid=str(uuid.uuid4()), nodatabase=False):
+    def __init__(self, username, password, model="SIM", broker_name="QAPaperTrading", portfolioname ='QAPaperTrade',
+            trade_host=mongo_ip, init_cash=1000000, taskid=str(uuid.uuid4()), nodatabase=False):
         """Initial
         QIFI Account是一个基于 DIFF/ QIFI/ QAAccount后的一个实盘适用的Account基类
 
@@ -52,7 +53,7 @@ class QIFI_Account():
         self.source_id = "QIFI_Account"  # 识别号
         self.market_preset = MARKET_PRESET()
         # 指的是 Account所属的账户编组(实时的时候的账户观察组)
-        self.portfolio = "QAPaperTrade"
+        self.portfolio = portfolioname
         self.model = model
 
         self.broker_name = broker_name    # 所属期货公司/ 模拟的组
@@ -60,7 +61,7 @@ class QIFI_Account():
         self.bank_password = ""
         self.capital_password = ""
         self.wsuri = ""
-
+        self.commission_fee = 0.0015
         self.bank_id = "QASIM"
         self.bankname = "QASIMBank"
 
@@ -619,7 +620,10 @@ class QIFI_Account():
     def send_order(self, code: str, amount: float, price: float, towards: int, order_id: str = '', datetime: str = ''):
 
         if datetime:
+            # if datetime< self.datetime:
+            #     pass
             self.on_price_change(code, price, datetime)
+
         order_id = str(uuid.uuid4()) if order_id == '' else order_id
         if self.order_check(code, amount, price, towards, order_id):
             self.log("order check success")
@@ -741,6 +745,12 @@ class QIFI_Account():
             self.event_id += 1
             trade_id = str(uuid.uuid4()) if trade_id is None else trade_id
 
+
+            # update accounts
+            print('update trade')
+
+            margin, close_profit, commission = self.get_position(code).update_pos(
+                trade_price, trade_amount, trade_towards)
             self.trades[trade_id] = {
                 "seqno": self.event_id,
                 "user_id":  self.user_id,
@@ -754,17 +764,15 @@ class QIFI_Account():
                 "volume": trade_amount,
                 "price": trade_price,
                 "trade_time": trade_time,
-                "commission": float(0),
+                "commission": commission,
                 "trade_date_time": self.transform_dt(trade_time)}
 
-            # update accounts
-            print('update trade')
-
-            margin, close_profit = self.get_position(code).update_pos(
-                trade_price, trade_amount, trade_towards)
-
             self.money -= (margin - close_profit)
-            self.close_profit += close_profit
+            self.close_profit += (close_profit - commission)
+
+            pos =  self.get_position(code)
+            if pos.volume_long ==0 and pos.volume_short ==0:
+                self.positions.pop(self.format_code(code))
             if self.model != "BACKTEST":
                 self.sync()
 
